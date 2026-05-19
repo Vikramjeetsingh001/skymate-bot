@@ -137,7 +137,6 @@ def webhook():
             passenger_info["departure_time"],
             sec
         )
-
 # ---- Simple rule-based map links (works even if AI fails) ----
 text = incoming_msg.lower()
 
