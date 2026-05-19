@@ -5,6 +5,13 @@ import google.generativeai as genai
 from database import save_passenger, get_passenger, init_db
 from security_engine import get_estimated_wait_time, get_security_alert, populate_simulated_data
 
+MAP_BASE_URL = os.environ.get("MAP_BASE_URL", "")
+
+def make_map_link(frm: str, to: str) -> str:
+    if not MAP_BASE_URL:
+        return ""
+    return f"{MAP_BASE_URL}/?from={frm}&to={to}"
+
 app = Flask(__name__)
 init_db()
 populate_simulated_data()
@@ -130,6 +137,29 @@ def webhook():
             passenger_info["departure_time"],
             sec
         )
+
+# ---- Simple rule-based map links (works even if AI fails) ----
+text = incoming_msg.lower()
+
+# Example 1: "how do i get to my gate" -> security to gate36 (demo)
+if "my gate" in text or "gate" in text:
+    p = passenger_sessions.get(sender)
+
+    if p and p.get("gate", "").lower().replace(" ", "") in ["gate36", "36"]:
+        link = make_map_link("SECURITY", "GATE36")
+
+        if link:
+            out.body(f"🗺️ Here is your map route: {link}\n\n"
+                     "You can also ask in chat for directions.")
+            return str(resp)
+
+# Example 2: "restroom" near gate36
+if "restroom" in text or "toilet" in text:
+    link = make_map_link("GATE36", "RESTROOM")
+
+    if link:
+        out.body(f"🚻 Nearest restroom route: {link}")
+        return str(resp)
 
         msg.body(welcome)
     else:
