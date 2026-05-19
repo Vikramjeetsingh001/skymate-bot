@@ -5,13 +5,6 @@ import google.generativeai as genai
 from database import save_passenger, get_passenger, init_db
 from security_engine import get_estimated_wait_time, get_security_alert, populate_simulated_data
 
-MAP_BASE_URL = os.environ.get("MAP_BASE_URL", "")
-
-def make_map_link(frm: str, to: str) -> str:
-    if not MAP_BASE_URL:
-        return ""
-    return f"{MAP_BASE_URL}/?from={frm}&to={to}"
-
 app = Flask(__name__)
 init_db()
 populate_simulated_data()
@@ -19,6 +12,13 @@ populate_simulated_data()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
+
+MAP_BASE_URL = os.environ.get("MAP_BASE_URL", "")
+
+def make_map_link(frm, to):
+    if not MAP_BASE_URL:
+        return ""
+    return f"{MAP_BASE_URL}/?from={frm}&to={to}"
 
 AIRPORT_CONTEXT = """You are SkyMate, a friendly AI airport navigation assistant for Indira Gandhi International Airport (DEL), Terminal 3, New Delhi.
 
@@ -46,14 +46,7 @@ def parse_checkin_message(message):
     try:
         parts = message.split("|")
         if len(parts) >= 7 and parts[0].upper() == "CHECKIN":
-            return {
-                "name": parts[1],
-                "flight": parts[2],
-                "route": parts[3],
-                "terminal": parts[4],
-                "gate": parts[5],
-                "departure_time": parts[6]
-            }
+            return {"name": parts[1], "flight": parts[2], "route": parts[3], "terminal": parts[4], "gate": parts[5], "departure_time": parts[6]}
     except:
         pass
     return None
@@ -63,29 +56,16 @@ def get_ai_response(user_message, passenger_info=None):
         context = AIRPORT_CONTEXT
         est_wait, wait_status = get_estimated_wait_time()
         if est_wait:
-            context += "\nSECURITY: Current wait ~{} min ({}). Share if asked.".format(
-                est_wait,
-                wait_status
-            )
+            context += "\nSECURITY: Current wait ~{} min ({}). Share if asked.".format(est_wait, wait_status)
         if passenger_info:
             context += "\nPASSENGER: {} on flight {} ({}), {}, {}, departing {}.".format(
-                passenger_info["name"],
-                passenger_info["flight"],
-                passenger_info["route"],
-                passenger_info["terminal"],
-                passenger_info["gate"],
-                passenger_info["departure_time"]
-            )
+                passenger_info["name"], passenger_info["flight"], passenger_info["route"],
+                passenger_info["terminal"], passenger_info["gate"], passenger_info["departure_time"])
             alert = get_security_alert(passenger_info["departure_time"])
             if alert:
                 context += "\nALERT: " + alert
         chat = model.start_chat(history=[])
-        response = chat.send_message(
-            "SYSTEM: {}\n\nPASSENGER MESSAGE: {}".format(
-                context,
-                user_message
-            )
-        )
+        response = chat.send_message("SYSTEM: {}\n\nPASSENGER MESSAGE: {}".format(context, user_message))
         return response.text
     except Exception as e:
         return "Having trouble right now. Try again!\nError: " + str(e)
@@ -93,11 +73,7 @@ def get_ai_response(user_message, passenger_info=None):
 @app.route("/")
 def home():
     est, status = get_estimated_wait_time()
-
-    return "<h1>SkyMate - Airport Bot</h1><p>Status: Online</p><p>Airport: Delhi T3</p><p>Security: ~{} min ({})</p>".format(
-        est,
-        status
-    )
+    return "<h1>SkyMate - Airport Bot</h1><p>Status: Online</p><p>Airport: Delhi T3</p><p>Security: ~{} min ({})</p>".format(est, status)
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -105,65 +81,48 @@ def webhook():
     sender = request.values.get("From", "")
     resp = MessagingResponse()
     msg = resp.message()
+
     passenger_info = parse_checkin_message(incoming_msg)
     if passenger_info:
         save_passenger(sender, passenger_info)
         est, wst = get_estimated_wait_time()
         sec = "\nSecurity Wait: ~{} min ({})".format(est, wst) if est else ""
-        welcome = (
-            "Welcome to Delhi Airport, {}!\n\n"
-            "Flight: {}\n"
-            "Route: {}\n"
-            "Terminal: {}\n"
-            "Gate: {}\n"
-            "Departure: {}\n{}\n\n"
-            "I am *SkyMate*, your airport buddy!\n\n"
-            "I can help with:\n"
-            "- *Navigate* to gate\n"
-            "- *Food* nearby\n"
-            "- *Restroom* nearest\n"
-            "- *Lounge* access/prices\n"
-            "- *Baggage* tracking\n"
-            "- *Transfer* connecting flights\n"
-            "- *Security* wait time\n"
-            "- *Any language* just type!\n\n"
-            "Ask me anything!"
-        ).format(
-            passenger_info["name"],
-            passenger_info["flight"],
-            passenger_info["route"],
-            passenger_info["terminal"],
-            passenger_info["gate"],
-            passenger_info["departure_time"],
-            sec
-        )
-# ---- Simple rule-based map links (works even if AI fails) ----
-text = incoming_msg.lower()
-
-# Example 1: "how do i get to my gate" -> security to gate36 (demo)
-if "my gate" in text or "gate" in text:
-    p = passenger_sessions.get(sender)
-
-    if p and p.get("gate", "").lower().replace(" ", "") in ["gate36", "36"]:
-        link = make_map_link("SECURITY", "GATE36")
-
-        if link:
-            out.body(f"🗺️ Here is your map route: {link}\n\n"
-                     "You can also ask in chat for directions.")
-            return str(resp)
-
-# Example 2: "restroom" near gate36
-if "restroom" in text or "toilet" in text:
-    link = make_map_link("GATE36", "RESTROOM")
-
-    if link:
-        out.body(f"🚻 Nearest restroom route: {link}")
+        welcome = "Welcome to Delhi Airport, {}!\n\nFlight: {}\nRoute: {}\nTerminal: {}\nGate: {}\nDeparture: {}{}\n\nI am *SkyMate*, your airport buddy!\n\nI can help with:\n- *Navigate* to gate\n- *Food* nearby\n- *Restroom* nearest\n- *Lounge* access/prices\n- *Baggage* tracking\n- *Transfer* connecting flights\n- *Security* wait time\n- *Any language* just type!\n\nAsk me anything!".format(
+            passenger_info["name"], passenger_info["flight"], passenger_info["route"],
+            passenger_info["terminal"], passenger_info["gate"], passenger_info["departure_time"], sec)
+        msg.body(welcome)
         return str(resp)
 
-        msg.body(welcome)
-    else:
-        p_info = get_passenger(sender)
-        msg.body(get_ai_response(incoming_msg, p_info))
+    text = incoming_msg.lower()
+    p_info = get_passenger(sender)
+
+    if "gate" in text or "my gate" in text:
+        if p_info and p_info.get("gate", "").lower().replace(" ", "") in ["gate36", "36"]:
+            link = make_map_link("SECURITY", "GATE36")
+            if link:
+                msg.body(f"\U0001f5fa Here is your map route to {p_info['gate']}:\n{link}\n\nYou can also ask me for text directions!")
+                return str(resp)
+
+    if "restroom" in text or "toilet" in text or "washroom" in text or "bathroom" in text:
+        link = make_map_link("GATE36", "RESTROOM")
+        if link:
+            msg.body(f"\U0001f6bb Nearest restroom route:\n{link}")
+            return str(resp)
+
+    if "lounge" in text:
+        link = make_map_link("SECURITY", "LOUNGE")
+        if link:
+            msg.body(f"\U0001f6cb Lounge route:\n{link}\n\nPlaza Premium Lounge near Gate 36 - Rs 2500")
+            return str(resp)
+
+    if "food" in text or "eat" in text or "restaurant" in text or "hungry" in text:
+        link = make_map_link("SECURITY", "FOOD")
+        if link:
+            msg.body(f"\U0001f354 Food Court route:\n{link}\n\nOptions: Burger King, Starbucks, Haldirams, Punjab Grill")
+            return str(resp)
+
+    # --- If no rule matched, use Gemini AI ---
+    msg.body(get_ai_response(incoming_msg, p_info))
     return str(resp)
 
 if __name__ == "__main__":
